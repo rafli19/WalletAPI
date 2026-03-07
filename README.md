@@ -37,8 +37,8 @@ REST API for WalletApp Digital Wallet Management System, built with **Laravel 11
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/your-username/walletapi.git
-cd walletapi
+git clone https://github.com/your-username/WalletAPI.git
+cd WalletAPI
 
 # 2. Install dependencies
 composer install
@@ -150,4 +150,4 @@ php artisan view:cache
 
 ## 📄 License
 
-Built for educational purposes — Dibimbing.id Final Project.
+Built for educational purposes — Dibimbing.id FWD Project.
