@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\WalletController;
+use App\Http\Middleware\IsAdmin;
 use Illuminate\Support\Facades\Route;
 
 Route::post('/register', [AuthController::class, 'register']);
@@ -18,10 +19,20 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/topup',       [WalletController::class, 'topup']);
     Route::post('/transfer',    [WalletController::class, 'transfer']);
     Route::get('/transactions', [WalletController::class, 'transactions']);
+
+    // =============================== ADMIN =================================================================
+    Route::middleware(IsAdmin::class)->prefix('admin')->group(function () {
+        Route::get('/topups',               [WalletController::class, 'adminTopups']);
+        Route::post('/topups/{id}/approve', [WalletController::class, 'adminApprove']);
+        Route::post('/topups/{id}/reject',  [WalletController::class, 'adminReject']);
+
+        Route::get('/users',         [WalletController::class, 'adminUsers']);
+        Route::post('/users',        [WalletController::class, 'adminCreateUser']);
+        Route::put('/users/{id}',    [WalletController::class, 'adminUpdateUser']);
+        Route::delete('/users/{id}', [WalletController::class, 'adminDeleteUser']);
+    });
 });
 
 Route::fallback(function () {
-    return response()->json([
-        'message' => 'Endpoint tidak ditemukan.',
-    ], 404);
+    return response()->json(['message' => 'Endpoint tidak ditemukan.'], 404);
 });

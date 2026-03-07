@@ -19,6 +19,7 @@ class User extends Authenticatable
         'password',
         'balance',
         'avatar',
+        'role',         // tambahan: 'user' | 'admin'
     ];
 
     protected $hidden = [
@@ -28,9 +29,14 @@ class User extends Authenticatable
 
     protected $casts = [
         'email_verified_at' => 'datetime',
-        'password' => 'hashed',
-        'balance' => 'integer',
+        'password'          => 'hashed',
+        'balance'           => 'integer',
     ];
+
+    public function isAdmin(): bool
+    {
+        return $this->role === 'admin';
+    }
 
     public function transactions()
     {

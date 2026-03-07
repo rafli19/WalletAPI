@@ -11,7 +11,6 @@ use Illuminate\Support\Facades\Storage;
 
 class AuthController extends Controller
 {
-
     public function register(Request $request): JsonResponse
     {
         $request->validate([
@@ -29,13 +28,14 @@ class AuthController extends Controller
             'password.confirmed' => 'Konfirmasi password tidak cocok.',
         ]);
 
-        $user  = User::create([
+        $user = User::create([
             'name'     => $request->name,
             'username' => $request->username,
             'email'    => $request->email,
             'phone'    => $request->phone ?? null,
             'password' => Hash::make($request->password),
             'balance'  => 0,
+            'role'     => 'user',
         ]);
 
         $token = $user->createToken('auth_token')->plainTextToken;
@@ -95,7 +95,6 @@ class AuthController extends Controller
         ]);
     }
 
-
     public function me(Request $request): JsonResponse
     {
         return response()->json([
@@ -134,7 +133,6 @@ class AuthController extends Controller
         ]);
     }
 
-
     private function applyProfileUpdates(User $user, array $validated, Request $request): void
     {
         foreach (['name', 'email', 'phone'] as $field) {
@@ -150,7 +148,6 @@ class AuthController extends Controller
                     'errors'  => ['current_password' => ['Password saat ini salah.']],
                 ], 422));
             }
-
             $user->password = Hash::make($request->password);
         }
 
@@ -168,7 +165,7 @@ class AuthController extends Controller
             }
         }
 
-        $filename    = time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension();
+        $filename     = time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension();
         $user->avatar = $filename;
         $file->storeAs('avatars', $filename, 'public');
     }
@@ -182,6 +179,7 @@ class AuthController extends Controller
             'email'    => $user->email,
             'phone'    => $user->phone,
             'avatar'   => $user->avatar,
+            'role'     => $user->role,   // ← tambahan, dibutuhkan frontend
         ];
     }
 }
