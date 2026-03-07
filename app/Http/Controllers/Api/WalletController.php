@@ -16,7 +16,7 @@ class WalletController extends Controller
 {
     private const MAX_TRANSACTION_AMOUNT = 50_000_000;
 
-    // ── GET /wallet ───────────────────────────────────────────────
+    // GET /wallet
     public function balance(Request $request): JsonResponse
     {
         $user = $request->user();
@@ -29,7 +29,7 @@ class WalletController extends Controller
         ]);
     }
 
-    // ── GET /user/lookup ──────────────────────────────────────────
+    // GET /user/lookup
     public function lookup(Request $request): JsonResponse
     {
         $identifier = $request->query('identifier');
@@ -48,7 +48,7 @@ class WalletController extends Controller
         return response()->json(['data' => ['name' => $user->name, 'username' => $user->username]]);
     }
 
-    // ── POST /topup ───────────────────────────────────────────────
+    // POST /topup
     public function topup(Request $request): JsonResponse
     {
         if ($request->user()->role === 'admin') {
@@ -82,7 +82,7 @@ class WalletController extends Controller
         ], 201);
     }
 
-    // ── POST /transfer ────────────────────────────────────────────
+    // POST /transfer
     public function transfer(Request $request): JsonResponse
     {
         if ($request->user()->role === 'admin') {
@@ -130,7 +130,7 @@ class WalletController extends Controller
         return response()->json(['message' => 'Transfer berhasil.', 'data' => ['balance' => $sender->balance, 'amount_sent' => $amount, 'receiver_email' => $receiver->email, 'receiver_name' => $receiver->name, 'reference_id' => $referenceId]]);
     }
 
-    // ── GET /transactions ─────────────────────────────────────────
+    // GET /transactions
     public function transactions(Request $request): JsonResponse
     {
         $transactions = Transaction::where('user_id', $request->user()->id)
@@ -155,10 +155,8 @@ class WalletController extends Controller
         return response()->json(['data' => $data, 'meta' => ['current_page' => $transactions->currentPage(), 'last_page' => $transactions->lastPage(), 'per_page' => $transactions->perPage(), 'total' => $transactions->total()]]);
     }
 
-    // ═══════════════════════════════════════════════════════════════
     // ADMIN ENDPOINTS
-    // ═══════════════════════════════════════════════════════════════
-
+    
     public function adminTopups(Request $request): JsonResponse
     {
         $status = $request->query('status', 'pending');
@@ -185,7 +183,7 @@ class WalletController extends Controller
         return response()->json(['message' => 'Top up berhasil ditolak.']);
     }
 
-    // ── GET /admin/users ──────────────────────────────────────────
+    // GET /admin/users
     public function adminUsers(): JsonResponse
     {
         $users = User::select('id', 'name', 'username', 'email', 'phone', 'role', 'created_at')
@@ -194,7 +192,7 @@ class WalletController extends Controller
         return response()->json(['data' => $users]);
     }
 
-    // ── POST /admin/users ─────────────────────────────────────────
+    // POST /admin/users
     public function adminCreateUser(Request $request): JsonResponse
     {
         $request->validate([
@@ -228,7 +226,7 @@ class WalletController extends Controller
         ], 201);
     }
 
-    // ── PUT /admin/users/{id} ─────────────────────────────────────
+    // PUT /admin/users/{id}
     public function adminUpdateUser(Request $request, $id): JsonResponse
     {
         $user = User::findOrFail($id);
@@ -264,7 +262,7 @@ class WalletController extends Controller
         ]);
     }
 
-    // ── DELETE /admin/users/{id} ──────────────────────────────────
+    // DELETE /admin/users/{id}
     public function adminDeleteUser(Request $request, $id): JsonResponse
     {
         // Admin tidak bisa hapus dirinya sendiri

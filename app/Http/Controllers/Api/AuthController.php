@@ -179,7 +179,7 @@ class AuthController extends Controller
             'email'    => $user->email,
             'phone'    => $user->phone,
             'avatar'   => $user->avatar,
-            'role'     => $user->role,   // ← tambahan, dibutuhkan frontend
+            'role'     => $user->role,
         ];
     }
 }

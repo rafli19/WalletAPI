@@ -13,8 +13,8 @@ class Transaction extends Model
         'user_id',
         'sender_id',
         'receiver_id',
-        'type',           // topup | transfer_in | transfer_out
-        'status',         // tambahan: pending | approved | rejected
+        'type', // topup | transfer_in | transfer_out
+        'status', // pending | approved | rejected
         'amount',
         'balance_before',
         'balance_after',

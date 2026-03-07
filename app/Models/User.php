@@ -19,7 +19,7 @@ class User extends Authenticatable
         'password',
         'balance',
         'avatar',
-        'role',         // tambahan: 'user' | 'admin'
+        'role', // 'user' | 'admin'
     ];
 
     protected $hidden = [
