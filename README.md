@@ -150,4 +150,4 @@ php artisan view:cache
 
 ## 📄 License
 
-Built for educational purposes — Dibimbing.id FWD Project.
+Built for educational purposes — Dibimbing.id Exam Project.
