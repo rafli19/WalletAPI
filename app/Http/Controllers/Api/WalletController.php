@@ -20,6 +20,7 @@ class WalletController extends Controller
     public function balance(Request $request): JsonResponse
     {
         $user = $request->user();
+
         return response()->json([
             'data' => [
                 'balance'  => $user->balance,
@@ -33,19 +34,29 @@ class WalletController extends Controller
     public function lookup(Request $request): JsonResponse
     {
         $identifier = $request->query('identifier');
+
         if (!$identifier) {
             return response()->json(['message' => 'Identifier wajib diisi.'], 422);
         }
 
-        $user = User::where('email', $identifier)->orWhere('phone', $identifier)->first();
+        $user = User::where('email', $identifier)
+            ->orWhere('phone', $identifier)
+            ->first();
+
         if (!$user) {
             return response()->json(['message' => 'Pengguna tidak ditemukan.'], 404);
         }
+
         if ($user->id === $request->user()->id) {
             return response()->json(['message' => 'Tidak dapat transfer ke diri sendiri.'], 422);
         }
 
-        return response()->json(['data' => ['name' => $user->name, 'username' => $user->username]]);
+        return response()->json([
+            'data' => [
+                'name'     => $user->name,
+                'username' => $user->username,
+            ],
+        ]);
     }
 
     // POST /topup
@@ -56,29 +67,40 @@ class WalletController extends Controller
         }
 
         $request->validate([
-            'amount'         => ['required'],
-            'payment_method' => ['required', 'in:qris,mbanking,va,ewallet'],
+            'amount' => ['required'],
         ]);
 
         $amount = $this->validateAmount($request->input('amount'));
         $user   = $request->user();
 
-        $transaction = Transaction::create([
-            'user_id'        => $user->id,
-            'sender_id'      => null,
-            'receiver_id'    => $user->id,
-            'type'           => 'topup',
-            'status'         => 'pending',
-            'amount'         => $amount,
-            'balance_before' => $user->balance,
-            'balance_after'  => $user->balance,
-            'description'    => 'Top Up saldo - menunggu konfirmasi',
-            'reference_id'   => (string) Str::uuid(),
-        ]);
+        DB::transaction(function () use ($user, $amount) {
+            $userLocked    = User::lockForUpdate()->find($user->id);
+            $balanceBefore = $userLocked->balance;
+
+            $userLocked->increment('balance', $amount);
+
+            Transaction::create([
+                'user_id'        => $userLocked->id,
+                'sender_id'      => null,
+                'receiver_id'    => $userLocked->id,
+                'type'           => 'topup',
+                'status'         => 'approved',
+                'amount'         => $amount,
+                'balance_before' => $balanceBefore,
+                'balance_after'  => $balanceBefore + $amount,
+                'description'    => 'Top Up saldo',
+                'reference_id'   => (string) Str::uuid(),
+            ]);
+        });
+
+        $user->refresh();
 
         return response()->json([
-            'message' => 'Permintaan top up berhasil dikirim, menunggu konfirmasi admin.',
-            'data'    => $transaction,
+            'message' => 'Top up berhasil.',
+            'data'    => [
+                'balance' => $user->balance,
+                'amount'  => $amount,
+            ],
         ], 201);
     }
 
@@ -92,42 +114,94 @@ class WalletController extends Controller
         $request->validate([
             'amount'     => ['required'],
             'identifier' => ['required', 'string'],
-        ], ['identifier.required' => 'Email atau nomor HP penerima wajib diisi.']);
+        ], [
+            'identifier.required' => 'Email atau nomor HP penerima wajib diisi.',
+        ]);
 
         $amount   = $this->validateAmount($request->input('amount'));
         $sender   = $request->user();
-        $receiver = User::where('email', $request->identifier)->orWhere('phone', $request->identifier)->first();
+        $receiver = User::where('email', $request->identifier)
+            ->orWhere('phone', $request->identifier)
+            ->first();
 
         if (!$receiver) {
-            return response()->json(['message' => 'Penerima tidak ditemukan.', 'errors' => ['identifier' => ['User dengan email/nomor HP tersebut tidak ditemukan.']]], 422);
+            return response()->json([
+                'message' => 'Penerima tidak ditemukan.',
+                'errors'  => ['identifier' => ['User dengan email/nomor HP tersebut tidak ditemukan.']],
+            ], 422);
         }
+
         if ($receiver->id === $sender->id) {
-            return response()->json(['message' => 'Tidak dapat transfer ke diri sendiri.', 'errors' => ['identifier' => ['Tidak dapat melakukan transfer ke akun sendiri.']]], 422);
+            return response()->json([
+                'message' => 'Tidak dapat transfer ke diri sendiri.',
+                'errors'  => ['identifier' => ['Tidak dapat melakukan transfer ke akun sendiri.']],
+            ], 422);
         }
+
         if ($sender->balance < $amount) {
-            return response()->json(['message' => 'Saldo tidak cukup.', 'errors' => ['amount' => ['Saldo Anda tidak mencukupi untuk melakukan transfer ini.']]], 422);
+            return response()->json([
+                'message' => 'Saldo tidak cukup.',
+                'errors'  => ['amount' => ['Saldo Anda tidak mencukupi untuk melakukan transfer ini.']],
+            ], 422);
         }
 
         $referenceId = (string) Str::uuid();
 
         DB::transaction(function () use ($sender, $receiver, $amount, $referenceId) {
             $senderLocked = User::lockForUpdate()->find($sender->id);
+
             if ($senderLocked->balance < $amount) {
-                throw ValidationException::withMessages(['amount' => ['Saldo Anda tidak mencukupi.']]);
+                throw ValidationException::withMessages([
+                    'amount' => ['Saldo Anda tidak mencukupi.'],
+                ]);
             }
 
-            $senderBalanceBefore   = $senderLocked->balance;
+            $senderBalanceBefore = $senderLocked->balance;
             $senderLocked->decrement('balance', $amount);
+
             $receiverLocked        = User::lockForUpdate()->find($receiver->id);
             $receiverBalanceBefore = $receiverLocked->balance;
             $receiverLocked->increment('balance', $amount);
 
-            Transaction::create(['user_id' => $senderLocked->id, 'sender_id' => $senderLocked->id, 'receiver_id' => $receiverLocked->id, 'type' => 'transfer_out', 'status' => 'approved', 'amount' => $amount, 'balance_before' => $senderBalanceBefore, 'balance_after' => $senderBalanceBefore - $amount, 'description' => "Transfer ke {$receiverLocked->username}", 'reference_id' => $referenceId . '-out']);
-            Transaction::create(['user_id' => $receiverLocked->id, 'sender_id' => $senderLocked->id, 'receiver_id' => $receiverLocked->id, 'type' => 'transfer_in', 'status' => 'approved', 'amount' => $amount, 'balance_before' => $receiverBalanceBefore, 'balance_after' => $receiverBalanceBefore + $amount, 'description' => "Transfer dari {$senderLocked->username}", 'reference_id' => $referenceId . '-in']);
+            Transaction::create([
+                'user_id'        => $senderLocked->id,
+                'sender_id'      => $senderLocked->id,
+                'receiver_id'    => $receiverLocked->id,
+                'type'           => 'transfer_out',
+                'status'         => 'approved',
+                'amount'         => $amount,
+                'balance_before' => $senderBalanceBefore,
+                'balance_after'  => $senderBalanceBefore - $amount,
+                'description'    => "Transfer ke {$receiverLocked->username}",
+                'reference_id'   => $referenceId . '-out',
+            ]);
+
+            Transaction::create([
+                'user_id'        => $receiverLocked->id,
+                'sender_id'      => $senderLocked->id,
+                'receiver_id'    => $receiverLocked->id,
+                'type'           => 'transfer_in',
+                'status'         => 'approved',
+                'amount'         => $amount,
+                'balance_before' => $receiverBalanceBefore,
+                'balance_after'  => $receiverBalanceBefore + $amount,
+                'description'    => "Transfer dari {$senderLocked->username}",
+                'reference_id'   => $referenceId . '-in',
+            ]);
         });
 
         $sender->refresh();
-        return response()->json(['message' => 'Transfer berhasil.', 'data' => ['balance' => $sender->balance, 'amount_sent' => $amount, 'receiver_email' => $receiver->email, 'receiver_name' => $receiver->name, 'reference_id' => $referenceId]]);
+
+        return response()->json([
+            'message' => 'Transfer berhasil.',
+            'data'    => [
+                'balance'        => $sender->balance,
+                'amount_sent'    => $amount,
+                'receiver_email' => $receiver->email,
+                'receiver_name'  => $receiver->name,
+                'reference_id'   => $referenceId,
+            ],
+        ]);
     }
 
     // GET /transactions
@@ -152,34 +226,69 @@ class WalletController extends Controller
             'created_at'     => $trx->created_at->toISOString(),
         ]);
 
-        return response()->json(['data' => $data, 'meta' => ['current_page' => $transactions->currentPage(), 'last_page' => $transactions->lastPage(), 'per_page' => $transactions->perPage(), 'total' => $transactions->total()]]);
+        return response()->json([
+            'data' => $data,
+            'meta' => [
+                'current_page' => $transactions->currentPage(),
+                'last_page'    => $transactions->lastPage(),
+                'per_page'     => $transactions->perPage(),
+                'total'        => $transactions->total(),
+            ],
+        ]);
     }
 
-    // ADMIN ENDPOINTS
-    
+    // ── ADMIN ──────────────────────────────────────────────────────────────────
+
+    // GET /admin/topups
     public function adminTopups(Request $request): JsonResponse
     {
         $status = $request->query('status', 'pending');
-        $txs    = Transaction::with('user:id,name,username,email')->where('type', 'topup')->where('status', $status)->orderByDesc('created_at')->get();
+
+        $txs = Transaction::with('user:id,name,username,email')
+            ->where('type', 'topup')
+            ->where('status', $status)
+            ->orderByDesc('created_at')
+            ->get();
+
         return response()->json(['data' => $txs]);
     }
 
+    // POST /admin/topups/{id}/approve
     public function adminApprove(Request $request, $id): JsonResponse
     {
-        $transaction = Transaction::where('type', 'topup')->where('status', 'pending')->findOrFail($id);
+        $transaction = Transaction::where('type', 'topup')
+            ->where('status', 'pending')
+            ->findOrFail($id);
+
         DB::transaction(function () use ($transaction) {
             $user          = User::lockForUpdate()->find($transaction->user_id);
             $balanceBefore = $user->balance;
+
             $user->increment('balance', $transaction->amount);
-            $transaction->update(['status' => 'approved', 'balance_before' => $balanceBefore, 'balance_after' => $balanceBefore + $transaction->amount, 'description' => 'Top Up saldo']);
+
+            $transaction->update([
+                'status'         => 'approved',
+                'balance_before' => $balanceBefore,
+                'balance_after'  => $balanceBefore + $transaction->amount,
+                'description'    => 'Top Up saldo',
+            ]);
         });
+
         return response()->json(['message' => 'Top up berhasil disetujui.']);
     }
 
+    // POST /admin/topups/{id}/reject
     public function adminReject(Request $request, $id): JsonResponse
     {
-        $transaction = Transaction::where('type', 'topup')->where('status', 'pending')->findOrFail($id);
-        $transaction->update(['status' => 'rejected', 'description' => 'Top Up saldo - ditolak admin']);
+        $transaction = Transaction::where('type', 'topup')
+            ->where('status', 'pending')
+            ->findOrFail($id);
+
+        $transaction->update([
+            'status'      => 'rejected',
+            'description' => 'Top Up saldo - ditolak admin',
+        ]);
+
         return response()->json(['message' => 'Top up berhasil ditolak.']);
     }
 
@@ -189,6 +298,7 @@ class WalletController extends Controller
         $users = User::select('id', 'name', 'username', 'email', 'phone', 'role', 'created_at')
             ->orderByDesc('created_at')
             ->get();
+
         return response()->json(['data' => $users]);
     }
 
@@ -251,9 +361,11 @@ class WalletController extends Controller
                 $user->$field = $request->$field;
             }
         }
+
         if ($request->filled('password')) {
             $user->password = Hash::make($request->password);
         }
+
         $user->save();
 
         return response()->json([
@@ -265,7 +377,6 @@ class WalletController extends Controller
     // DELETE /admin/users/{id}
     public function adminDeleteUser(Request $request, $id): JsonResponse
     {
-        // Admin tidak bisa hapus dirinya sendiri
         if ((int) $id === $request->user()->id) {
             return response()->json(['message' => 'Tidak dapat menghapus akun sendiri.'], 422);
         }
@@ -276,17 +387,27 @@ class WalletController extends Controller
         return response()->json(['message' => 'User berhasil dihapus.']);
     }
 
+    // ── PRIVATE ────────────────────────────────────────────────────────────────
 
     private function validateAmount(mixed $raw): int
     {
-        if ($raw === null || $raw === '') $this->throwAmountError('Nominal tidak boleh kosong.');
+        if ($raw === null || $raw === '') {
+            $this->throwAmountError('Nominal tidak boleh kosong.');
+        }
 
         $str = (string) $raw;
-        if (preg_match('/[a-zA-Z]/', $str) || preg_match('/[^0-9\-]/', $str)) $this->throwAmountError('Nominal harus berupa angka.');
-        if (str_contains($str, '.')) $this->throwAmountError('Nominal harus berupa angka bulat.');
+
+        if (preg_match('/[a-zA-Z]/', $str) || preg_match('/[^0-9\-]/', $str)) {
+            $this->throwAmountError('Nominal harus berupa angka.');
+        }
+
+        if (str_contains($str, '.')) {
+            $this->throwAmountError('Nominal harus berupa angka bulat.');
+        }
 
         $amount = (int) $str;
-        if ($amount < 0)   $this->throwAmountError('Nominal tidak boleh angka negatif.');
+
+        if ($amount < 0)  $this->throwAmountError('Nominal tidak boleh angka negatif.');
         if ($amount === 0) $this->throwAmountError('Nominal tidak boleh kosong.');
         if ($amount > self::MAX_TRANSACTION_AMOUNT) $this->throwAmountError('Nominal melebihi batas maksimum transaksi.');
 
